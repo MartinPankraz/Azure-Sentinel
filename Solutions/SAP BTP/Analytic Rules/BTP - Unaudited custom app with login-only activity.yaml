@@ -3,12 +3,14 @@ kind: Scheduled
 name: BTP - Unaudited custom app with login-only activity
 description: |
   Identifies SAP BTP custom applications (CloudFoundry, SAP CAP, etc.) that only produce
-  XSUAA authentication events (TokenIssuedEvent, ClientAuthenticationSuccess) but no other
-  audit log activity within 30 minutes of login. This pattern indicates that the application
-  has not implemented audit logging (e.g., missing @AuditLog annotations in CAP or missing
-  audit log service bindings), creating a security blind spot where user actions within the
-  application are invisible to monitoring. Attackers could exploit such unaudited applications
-  to perform malicious operations without detection.
+  XSUAA authentication events (TokenIssuedEvent, ClientAuthenticationSuccess) but have not
+  generated any business audit log activity in the past 7 days. This pattern indicates that
+  the application has not implemented audit logging (e.g., missing @AuditLog annotations in
+  CAP or missing audit log service bindings), creating a security blind spot where user
+  actions within the application are invisible to monitoring. The 7-day lookback avoids
+  false positives for properly instrumented apps whose users simply have not performed
+  auditable actions in the current session. Attackers could exploit such unaudited
+  applications to perform malicious operations without detection.
 severity: Medium
 status: Available
 requiredDataConnectors:
@@ -16,7 +18,7 @@ requiredDataConnectors:
     dataTypes:
       - SAPBTPAuditLog_CL
 queryFrequency: 1h
-queryPeriod: 1h
+queryPeriod: 7d
 triggerOperator: gt
 triggerThreshold: 0
 tactics:
@@ -25,9 +27,9 @@ relevantTechniques:
   - T1562
   - T1562.008
 query: |
-  // Detection window: evaluate logins from 30-60 min ago to allow audit events to arrive
-  let login_window_start = ago(1h);
-  let login_window_end = ago(30m);
+  // Lookback period for audit events — a longer window avoids false positives for
+  // properly instrumented apps where users logged in but haven't performed actions yet
+  let audit_lookback = ago(7d);
   // Known BTP platform service patterns (excluded from detection)
   let platform_service_patterns = dynamic([
       "app-studio", "auditlog", "cis-local", "service-manager",
@@ -36,7 +38,8 @@ query: |
   // Step 1: From XSUAA TokenIssuedEvent, identify custom apps with interactive user logins
   // XSUAA is a shared subaccount service — the client_id in each token identifies the actual app
   let app_logins = SAPBTPAuditLog_CL
-      | where TimeGenerated between (login_window_start .. login_window_end)
+      // Scope logins to the current 1h run cycle (matches queryFrequency)
+      | where TimeGenerated > ago(1h)
       | where Category == "audit.security-events"
       | extend data_s = tostring(Message.data)
       | where data_s has "TokenIssuedEvent"
@@ -59,10 +62,10 @@ query: |
       | extend HumanUser = extract(@'"user_name"\s*:\s*"([^"]+)"', 1, EventMessage)
       | extend IPAddress = tostring(Message.ip);
   // Step 2: Identify apps that have business audit events (= properly instrumented)
-  // Apps with audit logging emit audit.data-access / audit.data-modification / audit.configuration
-  // events via their service binding user (sb-<XsAppName>!...)
+  // Use a 7-day lookback: if the app produced any business audit events recently,
+  // it is instrumented and the current login-only pattern is benign (user idle)
   let audited_apps = SAPBTPAuditLog_CL
-      | where TimeGenerated > login_window_start
+      | where TimeGenerated > audit_lookback
       | where Category !in ("audit.security-events")
       | where UserName startswith "sb-"
       | extend AuditedAppName = extract(@"^sb-(.+?)!\w+", 1, UserName)
@@ -108,7 +111,7 @@ alertDetailsOverride:
   alertDisplayNameFormat: "SAP BTP: Unaudited custom app '{{AppName}}' - login-only activity detected"
   alertDescriptionFormat: |
     The custom app '{{AppName}}' ({{XsAppName}}) in subaccount '{{SubaccountName}}' produced only
-    XSUAA authentication events but no business audit trail within 30 minutes of interactive login.
+    XSUAA authentication events but no business audit trail within the past 7 days.
     
     This indicates the app has not implemented audit logging, creating a security blind spot
     where user actions within the application are invisible to Microsoft Sentinel.
@@ -129,4 +132,4 @@ customDetails:
   LoginCount: LoginCount
   Users: Users
   IPs: IPs
-version: 1.0.0
+version: 1.0.1

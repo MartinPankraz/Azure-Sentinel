@@ -61,9 +61,8 @@ query: |
       | extend AppName = extract(@"^([A-Za-z][A-Za-z0-9_]*)", 1, XsAppName)
       | extend HumanUser = extract(@'"user_name"\s*:\s*"([^"]+)"', 1, EventMessage)
       | extend IPAddress = tostring(Message.ip);
-  // Step 2: Identify apps that have business audit events (= properly instrumented)
-  // Use a 7-day lookback: if the app produced any business audit events recently,
-  // it is instrumented and the current login-only pattern is benign (user idle)
+  // Step 2a: Identify apps that have business audit events where the service binding
+  // identity appears in UserName (e.g. platform-generated audit events)
   let audited_apps = SAPBTPAuditLog_CL
       | where TimeGenerated > audit_lookback
       | where Category !in ("audit.security-events")
@@ -71,9 +70,22 @@ query: |
       | extend AuditedAppName = extract(@"^sb-(.+?)!\w+", 1, UserName)
       | where isnotempty(AuditedAppName)
       | distinct AuditedAppName, Tenant;
+  // Step 2b: Identify CF app instances that have an audit log service binding.
+  // When a CAP/custom app binds the audit log service, BTP provisions a
+  // 'customer-auditlog' service key whose XSUAA token events share the same
+  // AlsServiceId (CF app GUID) as the app's own login tokens. This gives a
+  // reliable per-app correlation that works even when the audit log service
+  // instance is deployed in a different CF space than the app itself.
+  let audited_app_instances = SAPBTPAuditLog_CL
+      | where TimeGenerated > audit_lookback
+      | where Category == "audit.security-events"
+      | where UserName contains "customer-auditlog"
+      | where isnotempty(AlsServiceId)
+      | distinct AlsServiceId, Tenant;
   // Step 3: Find custom apps with logins but no business audit trail
   app_logins
   | join kind=leftanti (audited_apps | project XsAppName = AuditedAppName, Tenant) on XsAppName, Tenant
+  | join kind=leftanti (audited_app_instances) on AlsServiceId, Tenant
   | summarize
       LoginCount = count(),
       FirstLogin = min(TimeGenerated),
@@ -132,4 +144,4 @@ customDetails:
   LoginCount: LoginCount
   Users: Users
   IPs: IPs
-version: 1.0.1
+version: 1.0.3

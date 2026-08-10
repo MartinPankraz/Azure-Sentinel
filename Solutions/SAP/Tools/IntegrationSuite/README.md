@@ -27,6 +27,17 @@ These standard tables integrate natively with the Microsoft Sentinel Solution fo
 - **Automatic connection naming**: Connections are named `{ConnectionPrefix}-{DestinationName}`
 - **Shared infrastructure**: Single DCE/DCR shared across all connections
 
+> [!IMPORTANT]
+> **Custom DCE/DCR names are not supported** for connections created by this tool (the SAP
+> agentless connector and any other integration that uses the `SAPCC` connector definition).
+> Use the tool-generated resources: `Microsoft-Sentinel-SAPCC-{workspace-short-id}` (DCE) and
+> `Microsoft-Sentinel-SAPCC-DCR-{workspace-short-id}` (DCR), where `{workspace-short-id}` is the
+> first 12 characters of the workspace ID. A custom-named DCE/DCR causes the SAP Data Collector to
+> fail with `Failed to extract workspace ID` (observed in the SAP Integration Suite message
+> processing log and the `SentinelHealth` table). This may manifest as intermittent failures and
+> missing data. Redeploy with this tool and repoint the connection to the standard resources. This
+> convention is enforced by the tool, which refuses to create or reuse a non-standard DCE/DCR.
+
 ## Files
 
 | File | Description |

@@ -26,17 +26,24 @@ These standard tables integrate natively with the Microsoft Sentinel Solution fo
 - **CSV-based destination management**: Process multiple SAP destinations from a CSV file
 - **Automatic connection naming**: Connections are named `{ConnectionPrefix}-{DestinationName}`
 - **Shared infrastructure**: Single DCE/DCR shared across all connections
+- **Enforced DCE/DCR naming**: Names are derived from the Log Analytics workspace ID and validated, so they always match Azure portal deployed resources:
+  - DCR: `Microsoft-Sentinel-SAPCC-DCR-<first 12 chars of workspace GUID>` (e.g. `Microsoft-Sentinel-SAPCC-DCR-befd8617-c90`)
+  - DCE: `ASI-<full workspace GUID>` (e.g. `ASI-befd8617-c90d-40e8-82f4-4e79d3e4c92b`)
+
+  The scripts abort with a clear error if a name (or a supplied DCE reference) violates this convention, because downstream processes depend on it.
 
 > [!IMPORTANT]
 > **Custom DCE/DCR names are not supported** for connections created by this tool (the SAP
 > agentless connector and any other integration that uses the `SAPCC` connector definition).
-> Use the tool-generated resources: `Microsoft-Sentinel-SAPCC-{workspace-short-id}` (DCE) and
-> `Microsoft-Sentinel-SAPCC-DCR-{workspace-short-id}` (DCR), where `{workspace-short-id}` is the
-> first 12 characters of the workspace ID. A custom-named DCE/DCR causes the SAP Data Collector to
-> fail with `Failed to extract workspace ID` (observed in the SAP Integration Suite message
-> processing log and the `SentinelHealth` table). This may manifest as intermittent failures and
-> missing data. Redeploy with this tool and repoint the connection to the standard resources. This
-> convention is enforced by the tool, which refuses to create or reuse a non-standard DCE/DCR.
+> Use the tool-generated resources: `ASI-{workspace-id}` (DCE) and
+> `Microsoft-Sentinel-SAPCC-DCR-{workspace-short-id}` (DCR), where `{workspace-id}` is the full
+> Log Analytics workspace ID (GUID) and `{workspace-short-id}` is its first 12 characters. These
+> are the same names the Azure portal deployment produces. A custom-named DCE/DCR causes the SAP
+> Data Collector to fail with `Failed to extract workspace ID` (observed in the SAP Integration
+> Suite message processing log and the `SentinelHealth` table). This may manifest as intermittent
+> failures and missing data. Redeploy with this tool and repoint the connection to the standard
+> resources. This convention is enforced by the tool, which refuses to create or reuse a
+> non-standard DCE/DCR.
 
 ## Files
 

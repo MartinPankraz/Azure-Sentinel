@@ -2,6 +2,15 @@
 # Shared helper functions for SAP Integration Suite Sentinel Connector scripts
 # This module provides common functionality for Azure authentication, DCR/DCE management,
 # and data connector operations for SAP Integration Suite integration with Microsoft Sentinel.
+#
+# NAMING CONVENTION (must match Azure portal deployed resources, downstream tooling depends on it):
+#   Data Collection Rule     : Microsoft-Sentinel-SAPCC-DCR-<first 12 chars of workspace GUID>
+#   Data Collection Endpoint : ASI-<full workspace GUID>
+# Both names are derived from the Log Analytics workspace ID (customerId) and are enforced
+# through Get-SapccDcrName / Get-SapccDceName and Assert-SapccResourceName.
+# Custom names are NOT supported: the SAP Data Collector resolves the target workspace from the
+# resource name and otherwise fails with "Failed to extract workspace ID" (visible in the SAP
+# Integration Suite message processing log and the SentinelHealth table).
 
 # Function to log messages with colored output
 function Write-Log {
@@ -16,43 +25,116 @@ function Write-Log {
     Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $color
 }
 
-# Naming convention for the shared SAPCC Data Collection Endpoint (DCE) and Rule (DCR).
-# The SAP Data Collector resolves the target Log Analytics workspace from these standard
-# resource names, so only names matching these patterns are supported:
-#   DCE: Microsoft-Sentinel-SAPCC-{workspace-short-id}
-#   DCR: Microsoft-Sentinel-SAPCC-DCR-{workspace-short-id}
-# where {workspace-short-id} is the first 12 characters of the workspace ID (a hex GUID).
-$script:SapccDceNamePattern = '^Microsoft-Sentinel-SAPCC-[0-9a-fA-F]{1,12}$'
-$script:SapccDcrNamePattern = '^Microsoft-Sentinel-SAPCC-DCR-[0-9a-fA-F]{1,12}$'
+#region SAPCC resource naming convention
 
-function Test-SapccResourceName {
-    <#
-    .SYNOPSIS
-        Validates that a DCE or DCR name follows the required SAPCC naming convention.
-    .DESCRIPTION
-        The SAP Data Collector resolves the target Log Analytics workspace from the standard
-        SAPCC resource name. Names that do not match the convention are not supported and cause
-        the connector to fail with "Failed to extract workspace ID".
-    .PARAMETER Name
-        The Data Collection Endpoint or Rule name to validate.
-    .PARAMETER ResourceType
-        The resource type to validate against: "DCE" or "DCR".
-    .OUTPUTS
-        System.Boolean. Returns $true when the name conforms to the convention; otherwise $false.
-    #>
+# Prefixes and patterns for the enforced SAP Cloud Connector / Integration Suite naming convention
+$script:SapccDcrNamePrefix = "Microsoft-Sentinel-SAPCC-DCR-"
+$script:SapccDceNamePrefix = "ASI-"
+$script:SapccDcrNamePattern = '^Microsoft-Sentinel-SAPCC-DCR-[0-9a-f]{8}-[0-9a-f]{3}$'
+$script:SapccDceNamePattern = '^ASI-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+# Function to normalize and validate a workspace GUID (Log Analytics customerId)
+function Get-NormalizedWorkspaceId {
     param(
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyString()]
-        [string]$Name,
-
-        [Parameter(Mandatory = $true)]
-        [ValidateSet("DCE", "DCR")]
-        [string]$ResourceType
+        [Parameter(Mandatory=$true)]
+        [string]$WorkspaceId
     )
 
-    $pattern = if ($ResourceType -eq "DCR") { $script:SapccDcrNamePattern } else { $script:SapccDceNamePattern }
+    $normalized = $WorkspaceId.Trim().ToLowerInvariant()
+
+    $parsed = [Guid]::Empty
+    if (-not [Guid]::TryParse($normalized, [ref]$parsed)) {
+        Write-Log "Workspace ID '$WorkspaceId' is not a valid GUID. Cannot build SAPCC resource names." -Level "ERROR"
+        throw "Invalid workspace ID '$WorkspaceId'. A GUID is required to enforce the SAPCC naming convention."
+    }
+
+    return $parsed.ToString("D").ToLowerInvariant()
+}
+
+# Function to build the Data Collection Rule name: Microsoft-Sentinel-SAPCC-DCR-<first 12 chars of workspace GUID>
+function Get-SapccDcrName {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$WorkspaceId
+    )
+
+    $normalized = Get-NormalizedWorkspaceId -WorkspaceId $WorkspaceId
+    $name = "$($script:SapccDcrNamePrefix)$($normalized.Substring(0, 12))"
+
+    Assert-SapccResourceName -Name $name -Type "DCR"
+    return $name
+}
+
+# Function to build the Data Collection Endpoint name: ASI-<full workspace GUID>
+function Get-SapccDceName {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$WorkspaceId
+    )
+
+    $normalized = Get-NormalizedWorkspaceId -WorkspaceId $WorkspaceId
+    $name = "$($script:SapccDceNamePrefix)$normalized"
+
+    Assert-SapccResourceName -Name $name -Type "DCE"
+    return $name
+}
+
+# Function to test a resource name against the enforced convention
+function Test-SapccResourceName {
+    param(
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string]$Name,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("DCR", "DCE")]
+        [Alias("ResourceType")]
+        [string]$Type
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $false
+    }
+
+    $pattern = if ($Type -eq "DCR") { $script:SapccDcrNamePattern } else { $script:SapccDceNamePattern }
     return $Name -match $pattern
 }
+
+# Function to get the expected name format for error messages
+function Get-SapccExpectedNameFormat {
+    param(
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("DCR", "DCE")]
+        [string]$Type
+    )
+
+    if ($Type -eq "DCR") {
+        return "Microsoft-Sentinel-SAPCC-DCR-<first 12 chars of workspace GUID> (e.g. Microsoft-Sentinel-SAPCC-DCR-befd8617-c90)"
+    }
+
+    return "ASI-<full workspace GUID> (e.g. ASI-befd8617-c90d-40e8-82f4-4e79d3e4c92b)"
+}
+
+# Function to enforce the naming convention, throwing on any deviation
+function Assert-SapccResourceName {
+    param(
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string]$Name,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("DCR", "DCE")]
+        [string]$Type
+    )
+
+    if (Test-SapccResourceName -Name $Name -Type $Type) {
+        return
+    }
+
+    $expected = Get-SapccExpectedNameFormat -Type $Type
+    Write-Log "$Type name '$Name' violates the required naming convention. Expected: $expected" -Level "ERROR"
+    throw "$Type name '$Name' violates the required SAPCC naming convention. Expected: $expected"
+}
+
+#endregion
 
 # Function to check if Azure CLI is installed
 function Test-AzCli {
@@ -246,9 +328,9 @@ function Get-SentinelWorkspaceDetails {
         
         $response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers
         
-        # Extract a short ID from workspace ID for naming (first 12 chars of last GUID segment)
-        $workspaceId = $response.properties.customerId
-        $shortId = $workspaceId.Substring(0, [Math]::Min(12, $workspaceId.Length))
+        # Extract a short ID from workspace ID for naming (first 12 chars of the workspace GUID)
+        $workspaceId = Get-NormalizedWorkspaceId -WorkspaceId $response.properties.customerId
+        $shortId = $workspaceId.Substring(0, 12)
         
         Write-Log "Workspace details retrieved successfully" -Level "SUCCESS"
         Write-Log "  Location: $($response.location)"
@@ -277,21 +359,15 @@ function Get-OrCreateSapccDataCollectionEndpoint {
         [Parameter(Mandatory=$true)]
         [string]$ResourceGroupName,
         [Parameter(Mandatory=$true)]
-        [string]$WorkspaceShortId,
+        [string]$WorkspaceId,
         [Parameter(Mandatory=$true)]
         [string]$Location
     )
     
     try {
-        # DCE naming convention: Microsoft-Sentinel-SAPCC-{workspace-short-id}
-        # Enforced (see Test-SapccResourceName): custom-named DCEs are not supported.
-        $dceName = "Microsoft-Sentinel-SAPCC-$WorkspaceShortId"
-
-        if (-not (Test-SapccResourceName -Name $dceName -ResourceType "DCE")) {
-            Write-Log "Refusing to use non-standard DCE name '$dceName'. It must match 'Microsoft-Sentinel-SAPCC-{workspace-short-id}'. Custom DCE names are not supported." -Level "ERROR"
-            return $null
-        }
-
+        # DCE naming convention: ASI-{full workspace GUID}
+        $dceName = Get-SapccDceName -WorkspaceId $WorkspaceId
+        
         Write-Log "Checking for existing Data Collection Endpoint '$dceName'..."
         
         $token = Get-AzureAccessToken
@@ -381,14 +457,12 @@ function Get-DataCollectionEndpointById {
         
         # Extract DCE name from resource ID
         $dceName = $DataCollectionEndpointId.Split('/')[-1]
-
-        # Reject a custom-named DCE (see Test-SapccResourceName): custom names are not supported.
-        if (-not (Test-SapccResourceName -Name $dceName -ResourceType "DCE")) {
-            Write-Log "DCE '$dceName' does not match the required name 'Microsoft-Sentinel-SAPCC-{workspace-short-id}'. Custom DCE names are not supported. Redeploy using the standard resources and repoint the connection." -Level "ERROR"
+        
+        Write-Log "Found DCE '$dceName'" -Level "SUCCESS"
+        if (-not (Test-SapccResourceName -Name $dceName -Type "DCE")) {
+            Write-Log "DCE '$dceName' does not follow the required naming convention. Expected: $(Get-SapccExpectedNameFormat -Type 'DCE'). Custom DCE names are not supported - the SAP Data Collector fails with 'Failed to extract workspace ID'. Redeploy using the standard resources and repoint the connection." -Level "ERROR"
             return $null
         }
-
-        Write-Log "Found DCE '$dceName'" -Level "SUCCESS"
         Write-Log "  Logs Ingestion Endpoint: $($response.properties.logsIngestion.endpoint)"
         
         return @{
@@ -466,7 +540,7 @@ function Get-OrCreateSapccDataCollectionRule {
         [Parameter(Mandatory=$true)]
         [string]$ResourceGroupName,
         [Parameter(Mandatory=$true)]
-        [string]$WorkspaceShortId,
+        [string]$WorkspaceId,
         [Parameter(Mandatory=$true)]
         [string]$WorkspaceResourceId,
         [Parameter(Mandatory=$false)]
@@ -476,15 +550,9 @@ function Get-OrCreateSapccDataCollectionRule {
     )
     
     try {
-        # DCR naming convention: Microsoft-Sentinel-SAPCC-DCR-{workspace-short-id}
-        # Enforced (see Test-SapccResourceName): custom-named DCRs are not supported.
-        $dcrName = "Microsoft-Sentinel-SAPCC-DCR-$WorkspaceShortId"
-
-        if (-not (Test-SapccResourceName -Name $dcrName -ResourceType "DCR")) {
-            Write-Log "Refusing to use non-standard DCR name '$dcrName'. It must match 'Microsoft-Sentinel-SAPCC-DCR-{workspace-short-id}'. Custom DCR names are not supported." -Level "ERROR"
-            return $null
-        }
-
+        # DCR naming convention: Microsoft-Sentinel-SAPCC-DCR-{first 12 chars of workspace GUID}
+        $dcrName = Get-SapccDcrName -WorkspaceId $WorkspaceId
+        
         Write-Log "Checking for existing Data Collection Rule '$dcrName'..."
         
         $token = Get-AzureAccessToken
@@ -506,17 +574,19 @@ function Get-OrCreateSapccDataCollectionRule {
             Write-Log "Found existing DCR '$dcrName'" -Level "SUCCESS"
             Write-Log "  Immutable ID: $($response.properties.immutableId)"
             Write-Log "  DCE Reference: $($response.properties.dataCollectionEndpointId)"
-
-            # Reject a DCR that references a custom-named DCE (see Test-SapccResourceName).
+            
+            # Reject a DCR that references a non-conformant DCE - the SAP Data Collector
+            # resolves the workspace from the DCE name and would fail with
+            # "Failed to extract workspace ID".
             $referencedDceId = $response.properties.dataCollectionEndpointId
             if (-not [string]::IsNullOrWhiteSpace($referencedDceId)) {
                 $referencedDceName = $referencedDceId.Split('/')[-1]
-                if (-not (Test-SapccResourceName -Name $referencedDceName -ResourceType "DCE")) {
-                    Write-Log "Existing DCR '$dcrName' references a non-standard DCE '$referencedDceName'. Custom DCE/DCR names are not supported. Redeploy using the standard 'Microsoft-Sentinel-SAPCC-*' resources and repoint the connection." -Level "ERROR"
+                if (-not (Test-SapccResourceName -Name $referencedDceName -Type "DCE")) {
+                    Write-Log "Existing DCR '$dcrName' references a non-standard DCE '$referencedDceName'. Expected: $(Get-SapccExpectedNameFormat -Type 'DCE'). Redeploy using the standard resources and repoint the connection." -Level "ERROR"
                     return $null
                 }
             }
-
+            
             return @{
                 Name = $dcrName
                 ResourceId = $response.id
@@ -538,6 +608,10 @@ function Get-OrCreateSapccDataCollectionRule {
             Write-Log "DataCollectionEndpointId is required to create a new DCR" -Level "ERROR"
             return $null
         }
+        
+        # The referenced DCE must follow the naming convention, otherwise downstream processing breaks
+        $referencedDceName = $DataCollectionEndpointId.Split('/')[-1]
+        Assert-SapccResourceName -Name $referencedDceName -Type "DCE"
         
         # Load DCR schema from SAPCC_DCR.json
         $dcrProperties = Get-SapccDcrTemplate -WorkspaceResourceId $WorkspaceResourceId -DataCollectionEndpointId $DataCollectionEndpointId

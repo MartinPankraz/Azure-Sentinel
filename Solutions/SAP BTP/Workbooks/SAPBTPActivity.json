@@ -38,6 +38,14 @@
                         "linkLabel": "Application Vulnerabilities",
                         "subTarget": "Vulnerabilities",
                         "style": "link"
+                    },
+                    {
+                        "id": "a9d4e2c7-1f3b-4e6a-8c5d-2b7f9e0a1d48",
+                        "cellValue": "setTab",
+                        "linkTarget": "parameter",
+                        "linkLabel": "Responsible Contacts",
+                        "subTarget": "Contacts",
+                        "style": "link"
                     }
                 ]
             },
@@ -1464,6 +1472,386 @@
                 "value": "Vulnerabilities"
             },
             "name": "group - vulnerabilities"
+        },
+        {
+            "type": 12,
+            "content": {
+                "version": "NotebookGroup/1.0",
+                "groupType": "editable",
+                "items": [
+                    {
+                        "type": 1,
+                        "content": {
+                            "json": "# BTP Responsible Contacts\r\n\r\nDuring an incident you need a human to talk to. This view automatically infers a responsible contact for every SAP BTP subaccount, custom application (XSUAA app / Cloud Foundry app), service instance and Cloud Integration artifact by correlating `SAPBTPAuditLog_CL` entries. No watchlist or manual maintenance is required. Resources without a direct contact **fall back to the subaccount administrator**.\r\n\r\n| Signal | Resource | Confidence |\r\n|---|---|---|\r\n| Holds an administrator role collection (role collection assignment, resolved via SCIM) | Subaccount | High |\r\n| Deployed / created the integration artifact | Integration artifact | High |\r\n| Obtained admin-level cockpit scopes (CIS, Service Manager, XSUAA administration) | Subaccount | Medium |\r\n| Obtained an administrative scope of the application (e.g. `myapp!t123.admin`) | Custom app | Medium |\r\n| Created or modified the service instance | Service instance | Medium |\r\n| Performed configuration changes | Subaccount | Low |\r\n| Signed in to the application (shown as *App users*, never used as contact) | Custom app | Info |\r\n\r\n**Limitations:** contacts reflect activity inside the selected lookback window (use a long window, e.g. 90 days); an administrator is not necessarily the business owner; Cloud Foundry space roles are not part of the BTP audit log, so CF apps are matched through their XSUAA app name. Select a row to see all evidence for the resource and its subaccount fallback candidates."
+                        },
+                        "name": "text - contacts"
+                    },
+                    {
+                        "type": 9,
+                        "content": {
+                            "version": "KqlParameterItem/1.0",
+                            "parameters": [
+                                {
+                                    "id": "c3f1a7d2-6b4e-4c8a-9f21-5d7e8a0b1c31",
+                                    "version": "KqlParameterItem/1.0",
+                                    "name": "ContactLookback",
+                                    "label": "Lookback",
+                                    "type": 4,
+                                    "isRequired": true,
+                                    "typeSettings": {
+                                        "selectableValues": [
+                                            {
+                                                "durationMs": 604800000
+                                            },
+                                            {
+                                                "durationMs": 1209600000
+                                            },
+                                            {
+                                                "durationMs": 2592000000
+                                            },
+                                            {
+                                                "durationMs": 5184000000
+                                            },
+                                            {
+                                                "durationMs": 7776000000
+                                            }
+                                        ],
+                                        "allowCustom": true
+                                    },
+                                    "timeContext": {
+                                        "durationMs": 86400000
+                                    },
+                                    "value": {
+                                        "durationMs": 7776000000
+                                    }
+                                },
+                                {
+                                    "id": "c3f1a7d2-6b4e-4c8a-9f21-5d7e8a0b1c32",
+                                    "version": "KqlParameterItem/1.0",
+                                    "name": "ContactSubaccount",
+                                    "label": "Subaccount",
+                                    "type": 2,
+                                    "multiSelect": true,
+                                    "quote": "'",
+                                    "delimiter": ",",
+                                    "query": "SAPBTPAuditLog_CL\r\n| where TimeGenerated >= {ContactLookback:start}\r\n| where isnotempty(SubaccountName)\r\n| distinct SubaccountName\r\n| sort by SubaccountName asc",
+                                    "typeSettings": {
+                                        "additionalResourceOptions": [
+                                            "value::all"
+                                        ],
+                                        "selectAllValue": "*",
+                                        "showDefault": false
+                                    },
+                                    "defaultValue": "value::all",
+                                    "timeContext": {
+                                        "durationMs": 86400000
+                                    },
+                                    "timeContextFromParameter": "ContactLookback",
+                                    "queryType": 0,
+                                    "resourceType": "microsoft.operationalinsights/workspaces",
+                                    "value": [
+                                        "value::all"
+                                    ]
+                                },
+                                {
+                                    "id": "c3f1a7d2-6b4e-4c8a-9f21-5d7e8a0b1c33",
+                                    "version": "KqlParameterItem/1.0",
+                                    "name": "ContactResourceType",
+                                    "label": "Resource type",
+                                    "type": 2,
+                                    "multiSelect": true,
+                                    "quote": "'",
+                                    "delimiter": ",",
+                                    "typeSettings": {
+                                        "additionalResourceOptions": [
+                                            "value::all"
+                                        ],
+                                        "selectAllValue": "*",
+                                        "showDefault": false
+                                    },
+                                    "jsonData": "[\"Subaccount\", \"Custom app (XSUAA)\", \"Service instance\", \"Integration artifact\"]",
+                                    "defaultValue": "value::all",
+                                    "value": [
+                                        "value::all"
+                                    ]
+                                }
+                            ],
+                            "style": "pills",
+                            "queryType": 0,
+                            "resourceType": "microsoft.operationalinsights/workspaces"
+                        },
+                        "name": "parameters - contacts"
+                    },
+                    {
+                        "type": 3,
+                        "content": {
+                            "version": "KqlItem/1.0",
+                            "query": "// Responsible contact resolution for SAP BTP resources (derived from SAPBTPAuditLog_CL only).\r\n// Confidence: 1 = High, 2 = Medium, 3 = Low, 4 = app user (informational only).\r\nlet platform_apps = dynamic([\"cis-local\", \"service-manager\", \"cockpit_xsuaa-api\", \"portal-cf-service\",\r\n    \"ui5-flexibility-personalization\", \"application-vulnerability-report\", \"auditlog\", \"app-studio\",\r\n    \"destination-xsappname\", \"connectivity-proxy\", \"feature-flags\", \"xsuaa\", \"hcp_onboarding\"]);\r\nlet admin_role_collections = dynamic([\"Subaccount Administrator\", \"Subaccount Service Administrator\", \"Cloud Connector Administrator\"]);\r\nlet IsHuman = (u: string) { u has \"@\" and u !startswith \"sb-\" and u !startswith \"client/\" };\r\n// Custom XSUAA app name from an OAuth client id; skips platform services and generated broker clones\r\nlet AppFromClient = (c: string) {\r\n    let a = extract(@\"^sb-([^!|]+)!\", 1, c);\r\n    iff(isempty(a) or a has_any (platform_apps) or a matches regex @\"^(ut-|na-)?[0-9a-f]{8}-[0-9a-f]{4}-\", \"\", a)\r\n};\r\nlet base = materialize(SAPBTPAuditLog_CL\r\n    | where TimeGenerated >= {ContactLookback:start}\r\n    | where \"*\" in ({ContactSubaccount}) or SubaccountName in ({ContactSubaccount}));\r\n// Token issuance: who obtained which scopes on which client\r\nlet tokens = materialize(base\r\n    | where Category == \"audit.security-events\" and Message has \"TokenIssuedEvent\"\r\n    | extend m = tostring(parse_json(tostring(Message.data)).message)\r\n    | extend Human = tolower(extract(@'\"user_name\"\\s*:\\s*\"([^\"]+)\"', 1, m)),\r\n             ClientId = extract(@'\"client_id\"\\s*:\\s*\"([^\"]+)\"', 1, m),\r\n             GrantType = extract(@'\"grant_type\"\\s*:\\s*\"([^\"]+)\"', 1, m),\r\n             Scopes = extract_all(@'\"([^\"]+)\"', extract(@'\"scope\"\\s*:\\s*(\\[[^\\]]*\\])', 1, m))\r\n    | project TimeGenerated, SubaccountName, Tenant, Human, ClientId, GrantType, Scopes);\r\nlet human_scopes = tokens\r\n    | where IsHuman(Human)\r\n    | mv-expand Scope = Scopes to typeof(string);\r\n// S2: privileged platform scopes (CIS write, Service Manager manage, XSUAA administration)\r\nlet s2 = human_scopes\r\n    | where Scope matches regex @\"^cis-local![bt]\\d+\\.subaccount\\..*\\.(create|update|delete)$\"\r\n        or Scope matches regex @\"^service-manager![bt]\\d+\\.subaccount\\..*\\.manage$\"\r\n        or Scope in (\"xs_authorization.write\", \"xs_user.write\", \"xs_idp.write\")\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(Scope, 5)\r\n        by SubaccountName, Tenant, Contact = Human\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Admin-scoped cockpit access\", Confidence = 2;\r\n// S6: app-local administrative scope on a custom app\r\nlet s6 = human_scopes\r\n    | extend XsApp = extract(@\"^([^!]+)![bt]\\d+\\.\", 1, Scope), LocalScope = extract(@\"^[^!]+![bt]\\d+\\.(.+)$\", 1, Scope)\r\n    | where isnotempty(XsApp) and isnotempty(AppFromClient(strcat(\"sb-\", XsApp, \"!\")))\r\n    | where LocalScope matches regex @\"(?i)(admin|manage|write|config|owner|operator)\"\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(Scope, 5)\r\n        by SubaccountName, Tenant, ResourceKey = XsApp, Contact = Human\r\n    | extend ResourceType = \"Custom app (XSUAA)\", Signal = \"App administrator scope\", Confidence = 2;\r\n// S8: interactive app users (informational, never used as primary contact)\r\nlet s8 = tokens\r\n    | where IsHuman(Human) and GrantType == \"authorization_code\"\r\n    | extend XsApp = AppFromClient(ClientId)\r\n    | where isnotempty(XsApp)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ClientId, 3)\r\n        by SubaccountName, Tenant, ResourceKey = XsApp, Contact = Human\r\n    | extend ResourceType = \"Custom app (XSUAA)\", Signal = \"App user\", Confidence = 4;\r\n// Configuration events\r\nlet cfg = materialize(base\r\n    | where Category == \"audit.configuration\" or isnotempty(Message.object)\r\n    | extend Obj = parse_json(tostring(Message.object))\r\n    | extend ObjType = tostring(Obj.type), ObjId = parse_json(tostring(Obj.id)));\r\n// SCIM user id -> email, to resolve role collection assignees\r\nlet scim_map = cfg\r\n    | where tostring(Message.object) has \"scim user\"\r\n    | mv-expand Attr = parse_json(tostring(Message.attributes))\r\n    | extend U = parse_json(replace_regex(tostring(Attr.new), @\"\\r\", \"\"))\r\n    | extend UserId = tostring(U.id), Email = tolower(coalesce(tostring(U.emails[0].value), tostring(U.userName)))\r\n    | where isnotempty(UserId) and Email has \"@\"\r\n    | summarize arg_max(TimeGenerated, Email) by Tenant, UserId\r\n    | project Tenant, UserId, Email;\r\n// S1: current holders of administrator role collections (latest CREATE not followed by DELETE)\r\nlet s1 = cfg\r\n    | where tostring(Message.object) has \"xs_rolecollection2user\"\r\n    | extend Crud = tostring(ObjId.crudType), RoleCollection = tostring(ObjId.rolecollection_name), UserId = tostring(ObjId.user_id)\r\n    | where RoleCollection in (admin_role_collections)\r\n    | summarize arg_max(TimeGenerated, Crud) by SubaccountName, Tenant, RoleCollection, UserId\r\n    | where Crud != \"DELETE\"\r\n    | join kind=leftouter scim_map on Tenant, UserId\r\n    | extend Contact = tolower(iff(UserId has \"@\", UserId, Email))\r\n    | where isnotempty(Contact)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(RoleCollection, 5)\r\n        by SubaccountName, Tenant, Contact\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Holds administrator role collection\", Confidence = 1;\r\n// S7: Cloud Integration artifact deployer / creator\r\nlet s7 = cfg\r\n    | where ObjType in (\"Deployment\", \"Undeployment\")\r\n    | mv-apply a = parse_json(tostring(Message.attributes)) on (\r\n        summarize Artifact = take_anyif(tostring(coalesce(a.[\"new\"], a.[\"old\"])), tostring(a.name) == \"symbolicName\"),\r\n                  Actor = take_anyif(tostring(coalesce(a.[\"new\"], a.[\"old\"])), tostring(a.name) in (\"deployedBy\", \"undeployedBy\", \"creator\")))\r\n    | where IsHuman(Actor) and isnotempty(Artifact)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 2)\r\n        by SubaccountName, Tenant, ResourceKey = Artifact, Contact = tolower(Actor)\r\n    | extend ResourceType = \"Integration artifact\", Signal = \"Artifact deployer / creator\", Confidence = 1;\r\nlet human_cfg = cfg\r\n    | where Category == \"audit.configuration\" and IsHuman(UserName);\r\n// S3: human actors of configuration changes in the subaccount\r\nlet s3 = human_cfg\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 5)\r\n        by SubaccountName, Tenant, Contact = tolower(UserName)\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Configuration change actor\", Confidence = 3;\r\n// S5: human creator / modifier of a service instance\r\nlet s5 = human_cfg\r\n    | where ObjType has_any (\"service_instance\", \"service instance\", \"serviceinstance\")\r\n    | extend ResourceKey = coalesce(tostring(ObjId.name), tostring(ObjId.service_instance_name), tostring(ObjId.id), tostring(ObjId))\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 5)\r\n        by SubaccountName, Tenant, ResourceKey, Contact = tolower(UserName)\r\n    | extend ResourceType = \"Service instance\", Signal = \"Instance creator / modifier\", Confidence = 2;\r\nlet candidates = materialize(union s1, s2, s3, s5, s6, s7, s8\r\n    | project ResourceType, SubaccountName, Tenant, ResourceKey, Contact, Signal, Confidence, EvidenceCount, LastSeen, Evidence);\r\n// Ranked responsible contacts (app users excluded)\r\nlet ranked = candidates\r\n    | where Confidence < 4\r\n    | summarize Signals = make_set(Signal), BestConfidence = min(Confidence), Evidence = sum(EvidenceCount), LastSeen = max(LastSeen)\r\n        by ResourceType, SubaccountName, Tenant, ResourceKey, Contact\r\n    | sort by ResourceType asc, Tenant asc, ResourceKey asc, BestConfidence asc, Evidence desc, LastSeen desc\r\n    | extend Rank = row_number(1, prev(ResourceType) != ResourceType or prev(Tenant) != Tenant or prev(ResourceKey) != ResourceKey);\r\nlet picked = materialize(ranked\r\n    | summarize PrimaryContact = take_anyif(Contact, Rank == 1),\r\n                PrimaryConfidence = take_anyif(BestConfidence, Rank == 1),\r\n                PrimarySignals = take_anyif(Signals, Rank == 1),\r\n                OtherContacts = make_set_if(Contact, Rank between (2 .. 5))\r\n        by ResourceType, SubaccountName, Tenant, ResourceKey);\r\nlet subaccount_contacts = picked\r\n    | where ResourceType == \"Subaccount\"\r\n    | project SubaccountName, Tenant, SubContact = PrimaryContact, SubConfidence = PrimaryConfidence, SubSignals = PrimarySignals, SubOthers = OtherContacts;\r\nlet direct_contacts = picked\r\n    | where ResourceType != \"Subaccount\"\r\n    | project ResourceType, Tenant, ResourceKey, PrimaryContact, PrimaryConfidence, PrimarySignals, OtherContacts;let app_users = candidates\r\n    | where Confidence == 4\r\n    | summarize AppUsers = make_set(Contact, 5) by ResourceType, Tenant, ResourceKey;\r\n// Resource inventory: subaccounts, custom apps (tokens + apps writing audit logs), resources seen in candidates\r\nlet inventory = union\r\n    (base | summarize by SubaccountName, Tenant | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName),\r\n    (tokens | summarize by ClientId, SubaccountName, Tenant | extend ResourceKey = AppFromClient(ClientId) | where isnotempty(ResourceKey) | extend ResourceType = \"Custom app (XSUAA)\"),\r\n    (base | where UserName startswith \"sb-\" | summarize by UserName, SubaccountName, Tenant\r\n          | extend ResourceKey = AppFromClient(UserName) | where isnotempty(ResourceKey) | extend ResourceType = \"Custom app (XSUAA)\"),\r\n    (candidates | summarize by ResourceType, SubaccountName, Tenant, ResourceKey)\r\n    | summarize SubaccountName = take_any(SubaccountName) by ResourceType, Tenant, ResourceKey;\r\nlet activity = base\r\n    | summarize LastActivity = max(TimeGenerated) by SubaccountName, Tenant;\r\nlet resolved = materialize(inventory\r\n    | join kind=leftouter direct_contacts on ResourceType, Tenant, ResourceKey\r\n    | join kind=leftouter subaccount_contacts on SubaccountName, Tenant\r\n    | join kind=leftouter app_users on ResourceType, Tenant, ResourceKey\r\n    | join kind=leftouter activity on SubaccountName, Tenant\r\n    | extend IsSub = ResourceType == \"Subaccount\", HasDirect = isnotempty(PrimaryContact) and ResourceType != \"Subaccount\"\r\n    | extend Contact = case(IsSub, SubContact, HasDirect, PrimaryContact, SubContact),\r\n             ContactSource = case(IsSub and isnotempty(SubContact), \"Direct\", HasDirect, \"Direct\", isnotempty(SubContact), \"Subaccount admin (fallback)\", \"Unresolved\"),\r\n             ConfidenceValue = case(IsSub, SubConfidence, HasDirect, PrimaryConfidence, SubConfidence),\r\n             Basis = case(IsSub, SubSignals, HasDirect, PrimarySignals, SubSignals),\r\n             AdditionalContacts = case(IsSub, SubOthers, HasDirect, OtherContacts, SubOthers)\r\n    | extend Confidence = case(isempty(Contact), \"None\", ConfidenceValue == 1, \"High\", ConfidenceValue == 2, \"Medium\", \"Low\")\r\n    | project ResourceType, SubaccountName, Resource = ResourceKey, Contact, ContactSource, Confidence, Basis,\r\n              AdditionalContacts, AppUsers, LastActivity, Tenant);\r\nresolved\r\n| where \"*\" in ({ContactResourceType}) or ResourceType in ({ContactResourceType})\r\n| summarize Resources = count() by ContactSource\r\n| extend SortKey = case(ContactSource == \"Direct\", 1, ContactSource == \"Subaccount admin (fallback)\", 2, 3)\r\n| sort by SortKey asc\r\n| project ContactSource, Resources",
+                            "size": 4,
+                            "title": "Resources by contact source",
+                            "timeContextFromParameter": "ContactLookback",
+                            "queryType": 0,
+                            "resourceType": "microsoft.operationalinsights/workspaces",
+                            "visualization": "tiles",
+                            "tileSettings": {
+                                "titleContent": {
+                                    "columnMatch": "ContactSource",
+                                    "formatter": 1
+                                },
+                                "leftContent": {
+                                    "columnMatch": "Resources",
+                                    "formatter": 12,
+                                    "formatOptions": {
+                                        "palette": "auto"
+                                    }
+                                },
+                                "showBorder": false
+                            },
+                            "noDataMessage": "No SAP BTP audit log data in the selected lookback window.",
+                            "noDataMessageStyle": "3"
+                        },
+                        "name": "query - contact-tiles"
+                    },
+                    {
+                        "type": 3,
+                        "content": {
+                            "version": "KqlItem/1.0",
+                            "query": "// Responsible contact resolution for SAP BTP resources (derived from SAPBTPAuditLog_CL only).\r\n// Confidence: 1 = High, 2 = Medium, 3 = Low, 4 = app user (informational only).\r\nlet platform_apps = dynamic([\"cis-local\", \"service-manager\", \"cockpit_xsuaa-api\", \"portal-cf-service\",\r\n    \"ui5-flexibility-personalization\", \"application-vulnerability-report\", \"auditlog\", \"app-studio\",\r\n    \"destination-xsappname\", \"connectivity-proxy\", \"feature-flags\", \"xsuaa\", \"hcp_onboarding\"]);\r\nlet admin_role_collections = dynamic([\"Subaccount Administrator\", \"Subaccount Service Administrator\", \"Cloud Connector Administrator\"]);\r\nlet IsHuman = (u: string) { u has \"@\" and u !startswith \"sb-\" and u !startswith \"client/\" };\r\n// Custom XSUAA app name from an OAuth client id; skips platform services and generated broker clones\r\nlet AppFromClient = (c: string) {\r\n    let a = extract(@\"^sb-([^!|]+)!\", 1, c);\r\n    iff(isempty(a) or a has_any (platform_apps) or a matches regex @\"^(ut-|na-)?[0-9a-f]{8}-[0-9a-f]{4}-\", \"\", a)\r\n};\r\nlet base = materialize(SAPBTPAuditLog_CL\r\n    | where TimeGenerated >= {ContactLookback:start}\r\n    | where \"*\" in ({ContactSubaccount}) or SubaccountName in ({ContactSubaccount}));\r\n// Token issuance: who obtained which scopes on which client\r\nlet tokens = materialize(base\r\n    | where Category == \"audit.security-events\" and Message has \"TokenIssuedEvent\"\r\n    | extend m = tostring(parse_json(tostring(Message.data)).message)\r\n    | extend Human = tolower(extract(@'\"user_name\"\\s*:\\s*\"([^\"]+)\"', 1, m)),\r\n             ClientId = extract(@'\"client_id\"\\s*:\\s*\"([^\"]+)\"', 1, m),\r\n             GrantType = extract(@'\"grant_type\"\\s*:\\s*\"([^\"]+)\"', 1, m),\r\n             Scopes = extract_all(@'\"([^\"]+)\"', extract(@'\"scope\"\\s*:\\s*(\\[[^\\]]*\\])', 1, m))\r\n    | project TimeGenerated, SubaccountName, Tenant, Human, ClientId, GrantType, Scopes);\r\nlet human_scopes = tokens\r\n    | where IsHuman(Human)\r\n    | mv-expand Scope = Scopes to typeof(string);\r\n// S2: privileged platform scopes (CIS write, Service Manager manage, XSUAA administration)\r\nlet s2 = human_scopes\r\n    | where Scope matches regex @\"^cis-local![bt]\\d+\\.subaccount\\..*\\.(create|update|delete)$\"\r\n        or Scope matches regex @\"^service-manager![bt]\\d+\\.subaccount\\..*\\.manage$\"\r\n        or Scope in (\"xs_authorization.write\", \"xs_user.write\", \"xs_idp.write\")\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(Scope, 5)\r\n        by SubaccountName, Tenant, Contact = Human\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Admin-scoped cockpit access\", Confidence = 2;\r\n// S6: app-local administrative scope on a custom app\r\nlet s6 = human_scopes\r\n    | extend XsApp = extract(@\"^([^!]+)![bt]\\d+\\.\", 1, Scope), LocalScope = extract(@\"^[^!]+![bt]\\d+\\.(.+)$\", 1, Scope)\r\n    | where isnotempty(XsApp) and isnotempty(AppFromClient(strcat(\"sb-\", XsApp, \"!\")))\r\n    | where LocalScope matches regex @\"(?i)(admin|manage|write|config|owner|operator)\"\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(Scope, 5)\r\n        by SubaccountName, Tenant, ResourceKey = XsApp, Contact = Human\r\n    | extend ResourceType = \"Custom app (XSUAA)\", Signal = \"App administrator scope\", Confidence = 2;\r\n// S8: interactive app users (informational, never used as primary contact)\r\nlet s8 = tokens\r\n    | where IsHuman(Human) and GrantType == \"authorization_code\"\r\n    | extend XsApp = AppFromClient(ClientId)\r\n    | where isnotempty(XsApp)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ClientId, 3)\r\n        by SubaccountName, Tenant, ResourceKey = XsApp, Contact = Human\r\n    | extend ResourceType = \"Custom app (XSUAA)\", Signal = \"App user\", Confidence = 4;\r\n// Configuration events\r\nlet cfg = materialize(base\r\n    | where Category == \"audit.configuration\" or isnotempty(Message.object)\r\n    | extend Obj = parse_json(tostring(Message.object))\r\n    | extend ObjType = tostring(Obj.type), ObjId = parse_json(tostring(Obj.id)));\r\n// SCIM user id -> email, to resolve role collection assignees\r\nlet scim_map = cfg\r\n    | where tostring(Message.object) has \"scim user\"\r\n    | mv-expand Attr = parse_json(tostring(Message.attributes))\r\n    | extend U = parse_json(replace_regex(tostring(Attr.new), @\"\\r\", \"\"))\r\n    | extend UserId = tostring(U.id), Email = tolower(coalesce(tostring(U.emails[0].value), tostring(U.userName)))\r\n    | where isnotempty(UserId) and Email has \"@\"\r\n    | summarize arg_max(TimeGenerated, Email) by Tenant, UserId\r\n    | project Tenant, UserId, Email;\r\n// S1: current holders of administrator role collections (latest CREATE not followed by DELETE)\r\nlet s1 = cfg\r\n    | where tostring(Message.object) has \"xs_rolecollection2user\"\r\n    | extend Crud = tostring(ObjId.crudType), RoleCollection = tostring(ObjId.rolecollection_name), UserId = tostring(ObjId.user_id)\r\n    | where RoleCollection in (admin_role_collections)\r\n    | summarize arg_max(TimeGenerated, Crud) by SubaccountName, Tenant, RoleCollection, UserId\r\n    | where Crud != \"DELETE\"\r\n    | join kind=leftouter scim_map on Tenant, UserId\r\n    | extend Contact = tolower(iff(UserId has \"@\", UserId, Email))\r\n    | where isnotempty(Contact)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(RoleCollection, 5)\r\n        by SubaccountName, Tenant, Contact\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Holds administrator role collection\", Confidence = 1;\r\n// S7: Cloud Integration artifact deployer / creator\r\nlet s7 = cfg\r\n    | where ObjType in (\"Deployment\", \"Undeployment\")\r\n    | mv-apply a = parse_json(tostring(Message.attributes)) on (\r\n        summarize Artifact = take_anyif(tostring(coalesce(a.[\"new\"], a.[\"old\"])), tostring(a.name) == \"symbolicName\"),\r\n                  Actor = take_anyif(tostring(coalesce(a.[\"new\"], a.[\"old\"])), tostring(a.name) in (\"deployedBy\", \"undeployedBy\", \"creator\")))\r\n    | where IsHuman(Actor) and isnotempty(Artifact)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 2)\r\n        by SubaccountName, Tenant, ResourceKey = Artifact, Contact = tolower(Actor)\r\n    | extend ResourceType = \"Integration artifact\", Signal = \"Artifact deployer / creator\", Confidence = 1;\r\nlet human_cfg = cfg\r\n    | where Category == \"audit.configuration\" and IsHuman(UserName);\r\n// S3: human actors of configuration changes in the subaccount\r\nlet s3 = human_cfg\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 5)\r\n        by SubaccountName, Tenant, Contact = tolower(UserName)\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Configuration change actor\", Confidence = 3;\r\n// S5: human creator / modifier of a service instance\r\nlet s5 = human_cfg\r\n    | where ObjType has_any (\"service_instance\", \"service instance\", \"serviceinstance\")\r\n    | extend ResourceKey = coalesce(tostring(ObjId.name), tostring(ObjId.service_instance_name), tostring(ObjId.id), tostring(ObjId))\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 5)\r\n        by SubaccountName, Tenant, ResourceKey, Contact = tolower(UserName)\r\n    | extend ResourceType = \"Service instance\", Signal = \"Instance creator / modifier\", Confidence = 2;\r\nlet candidates = materialize(union s1, s2, s3, s5, s6, s7, s8\r\n    | project ResourceType, SubaccountName, Tenant, ResourceKey, Contact, Signal, Confidence, EvidenceCount, LastSeen, Evidence);\r\n// Ranked responsible contacts (app users excluded)\r\nlet ranked = candidates\r\n    | where Confidence < 4\r\n    | summarize Signals = make_set(Signal), BestConfidence = min(Confidence), Evidence = sum(EvidenceCount), LastSeen = max(LastSeen)\r\n        by ResourceType, SubaccountName, Tenant, ResourceKey, Contact\r\n    | sort by ResourceType asc, Tenant asc, ResourceKey asc, BestConfidence asc, Evidence desc, LastSeen desc\r\n    | extend Rank = row_number(1, prev(ResourceType) != ResourceType or prev(Tenant) != Tenant or prev(ResourceKey) != ResourceKey);\r\nlet picked = materialize(ranked\r\n    | summarize PrimaryContact = take_anyif(Contact, Rank == 1),\r\n                PrimaryConfidence = take_anyif(BestConfidence, Rank == 1),\r\n                PrimarySignals = take_anyif(Signals, Rank == 1),\r\n                OtherContacts = make_set_if(Contact, Rank between (2 .. 5))\r\n        by ResourceType, SubaccountName, Tenant, ResourceKey);\r\nlet subaccount_contacts = picked\r\n    | where ResourceType == \"Subaccount\"\r\n    | project SubaccountName, Tenant, SubContact = PrimaryContact, SubConfidence = PrimaryConfidence, SubSignals = PrimarySignals, SubOthers = OtherContacts;\r\nlet direct_contacts = picked\r\n    | where ResourceType != \"Subaccount\"\r\n    | project ResourceType, Tenant, ResourceKey, PrimaryContact, PrimaryConfidence, PrimarySignals, OtherContacts;let app_users = candidates\r\n    | where Confidence == 4\r\n    | summarize AppUsers = make_set(Contact, 5) by ResourceType, Tenant, ResourceKey;\r\n// Resource inventory: subaccounts, custom apps (tokens + apps writing audit logs), resources seen in candidates\r\nlet inventory = union\r\n    (base | summarize by SubaccountName, Tenant | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName),\r\n    (tokens | summarize by ClientId, SubaccountName, Tenant | extend ResourceKey = AppFromClient(ClientId) | where isnotempty(ResourceKey) | extend ResourceType = \"Custom app (XSUAA)\"),\r\n    (base | where UserName startswith \"sb-\" | summarize by UserName, SubaccountName, Tenant\r\n          | extend ResourceKey = AppFromClient(UserName) | where isnotempty(ResourceKey) | extend ResourceType = \"Custom app (XSUAA)\"),\r\n    (candidates | summarize by ResourceType, SubaccountName, Tenant, ResourceKey)\r\n    | summarize SubaccountName = take_any(SubaccountName) by ResourceType, Tenant, ResourceKey;\r\nlet activity = base\r\n    | summarize LastActivity = max(TimeGenerated) by SubaccountName, Tenant;\r\nlet resolved = materialize(inventory\r\n    | join kind=leftouter direct_contacts on ResourceType, Tenant, ResourceKey\r\n    | join kind=leftouter subaccount_contacts on SubaccountName, Tenant\r\n    | join kind=leftouter app_users on ResourceType, Tenant, ResourceKey\r\n    | join kind=leftouter activity on SubaccountName, Tenant\r\n    | extend IsSub = ResourceType == \"Subaccount\", HasDirect = isnotempty(PrimaryContact) and ResourceType != \"Subaccount\"\r\n    | extend Contact = case(IsSub, SubContact, HasDirect, PrimaryContact, SubContact),\r\n             ContactSource = case(IsSub and isnotempty(SubContact), \"Direct\", HasDirect, \"Direct\", isnotempty(SubContact), \"Subaccount admin (fallback)\", \"Unresolved\"),\r\n             ConfidenceValue = case(IsSub, SubConfidence, HasDirect, PrimaryConfidence, SubConfidence),\r\n             Basis = case(IsSub, SubSignals, HasDirect, PrimarySignals, SubSignals),\r\n             AdditionalContacts = case(IsSub, SubOthers, HasDirect, OtherContacts, SubOthers)\r\n    | extend Confidence = case(isempty(Contact), \"None\", ConfidenceValue == 1, \"High\", ConfidenceValue == 2, \"Medium\", \"Low\")\r\n    | project ResourceType, SubaccountName, Resource = ResourceKey, Contact, ContactSource, Confidence, Basis,\r\n              AdditionalContacts, AppUsers, LastActivity, Tenant);\r\nresolved\r\n| where \"*\" in ({ContactResourceType}) or ResourceType in ({ContactResourceType})\r\n| extend SortKey = case(ContactSource == \"Unresolved\", 1, ContactSource == \"Subaccount admin (fallback)\", 2, 3)\r\n| sort by SortKey asc, SubaccountName asc, ResourceType asc, Resource asc\r\n| project-away SortKey",
+                            "size": 0,
+                            "showAnalytics": true,
+                            "title": "Responsible contact per BTP resource (select a row for evidence)",
+                            "showExportToExcel": true,
+                            "exportToExcelOptions": "all",
+                            "exportedParameters": [
+                                {
+                                    "fieldName": "Resource",
+                                    "parameterName": "SelectedResource",
+                                    "parameterType": 1
+                                },
+                                {
+                                    "fieldName": "SubaccountName",
+                                    "parameterName": "SelectedSubaccount",
+                                    "parameterType": 1
+                                },
+                                {
+                                    "fieldName": "ResourceType",
+                                    "parameterName": "SelectedResourceType",
+                                    "parameterType": 1
+                                }
+                            ],
+                            "timeContextFromParameter": "ContactLookback",
+                            "queryType": 0,
+                            "resourceType": "microsoft.operationalinsights/workspaces",
+                            "visualization": "table",
+                            "gridSettings": {
+                                "formatters": [
+                                    {
+                                        "columnMatch": "ContactSource",
+                                        "formatter": 18,
+                                        "formatOptions": {
+                                            "thresholdsOptions": "icons",
+                                            "thresholdsGrid": [
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Direct",
+                                                    "representation": "success",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Subaccount admin (fallback)",
+                                                    "representation": "warning",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Unresolved",
+                                                    "representation": "4",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "Default",
+                                                    "representation": "unknown",
+                                                    "text": "{0}{1}"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "columnMatch": "Confidence",
+                                        "formatter": 18,
+                                        "formatOptions": {
+                                            "thresholdsOptions": "icons",
+                                            "thresholdsGrid": [
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "High",
+                                                    "representation": "success",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Medium",
+                                                    "representation": "2",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Low",
+                                                    "representation": "warning",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "None",
+                                                    "representation": "4",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "Default",
+                                                    "representation": "unknown",
+                                                    "text": "{0}{1}"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "columnMatch": "LastActivity",
+                                        "formatter": 6
+                                    }
+                                ],
+                                "rowLimit": 2000,
+                                "filter": true,
+                                "sortBy": [],
+                                "labelSettings": [
+                                    {
+                                        "columnId": "ResourceType",
+                                        "label": "Resource Type"
+                                    },
+                                    {
+                                        "columnId": "SubaccountName",
+                                        "label": "Subaccount"
+                                    },
+                                    {
+                                        "columnId": "Contact",
+                                        "label": "Responsible Contact"
+                                    },
+                                    {
+                                        "columnId": "ContactSource",
+                                        "label": "Contact Source"
+                                    },
+                                    {
+                                        "columnId": "Basis",
+                                        "label": "Based On"
+                                    },
+                                    {
+                                        "columnId": "AdditionalContacts",
+                                        "label": "Additional Contacts"
+                                    },
+                                    {
+                                        "columnId": "AppUsers",
+                                        "label": "App Users (sample)"
+                                    },
+                                    {
+                                        "columnId": "LastActivity",
+                                        "label": "Last Subaccount Activity"
+                                    }
+                                ]
+                            },
+                            "noDataMessage": "No BTP resources found. Confirm the SAP BTP connector is ingesting into SAPBTPAuditLog_CL and widen the lookback window.",
+                            "noDataMessageStyle": "3"
+                        },
+                        "name": "query - contacts"
+                    },
+                    {
+                        "type": 3,
+                        "content": {
+                            "version": "KqlItem/1.0",
+                            "query": "// Responsible contact resolution for SAP BTP resources (derived from SAPBTPAuditLog_CL only).\r\n// Confidence: 1 = High, 2 = Medium, 3 = Low, 4 = app user (informational only).\r\nlet platform_apps = dynamic([\"cis-local\", \"service-manager\", \"cockpit_xsuaa-api\", \"portal-cf-service\",\r\n    \"ui5-flexibility-personalization\", \"application-vulnerability-report\", \"auditlog\", \"app-studio\",\r\n    \"destination-xsappname\", \"connectivity-proxy\", \"feature-flags\", \"xsuaa\", \"hcp_onboarding\"]);\r\nlet admin_role_collections = dynamic([\"Subaccount Administrator\", \"Subaccount Service Administrator\", \"Cloud Connector Administrator\"]);\r\nlet IsHuman = (u: string) { u has \"@\" and u !startswith \"sb-\" and u !startswith \"client/\" };\r\n// Custom XSUAA app name from an OAuth client id; skips platform services and generated broker clones\r\nlet AppFromClient = (c: string) {\r\n    let a = extract(@\"^sb-([^!|]+)!\", 1, c);\r\n    iff(isempty(a) or a has_any (platform_apps) or a matches regex @\"^(ut-|na-)?[0-9a-f]{8}-[0-9a-f]{4}-\", \"\", a)\r\n};\r\nlet base = materialize(SAPBTPAuditLog_CL\r\n    | where TimeGenerated >= {ContactLookback:start}\r\n    | where \"*\" in ({ContactSubaccount}) or SubaccountName in ({ContactSubaccount}));\r\n// Token issuance: who obtained which scopes on which client\r\nlet tokens = materialize(base\r\n    | where Category == \"audit.security-events\" and Message has \"TokenIssuedEvent\"\r\n    | extend m = tostring(parse_json(tostring(Message.data)).message)\r\n    | extend Human = tolower(extract(@'\"user_name\"\\s*:\\s*\"([^\"]+)\"', 1, m)),\r\n             ClientId = extract(@'\"client_id\"\\s*:\\s*\"([^\"]+)\"', 1, m),\r\n             GrantType = extract(@'\"grant_type\"\\s*:\\s*\"([^\"]+)\"', 1, m),\r\n             Scopes = extract_all(@'\"([^\"]+)\"', extract(@'\"scope\"\\s*:\\s*(\\[[^\\]]*\\])', 1, m))\r\n    | project TimeGenerated, SubaccountName, Tenant, Human, ClientId, GrantType, Scopes);\r\nlet human_scopes = tokens\r\n    | where IsHuman(Human)\r\n    | mv-expand Scope = Scopes to typeof(string);\r\n// S2: privileged platform scopes (CIS write, Service Manager manage, XSUAA administration)\r\nlet s2 = human_scopes\r\n    | where Scope matches regex @\"^cis-local![bt]\\d+\\.subaccount\\..*\\.(create|update|delete)$\"\r\n        or Scope matches regex @\"^service-manager![bt]\\d+\\.subaccount\\..*\\.manage$\"\r\n        or Scope in (\"xs_authorization.write\", \"xs_user.write\", \"xs_idp.write\")\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(Scope, 5)\r\n        by SubaccountName, Tenant, Contact = Human\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Admin-scoped cockpit access\", Confidence = 2;\r\n// S6: app-local administrative scope on a custom app\r\nlet s6 = human_scopes\r\n    | extend XsApp = extract(@\"^([^!]+)![bt]\\d+\\.\", 1, Scope), LocalScope = extract(@\"^[^!]+![bt]\\d+\\.(.+)$\", 1, Scope)\r\n    | where isnotempty(XsApp) and isnotempty(AppFromClient(strcat(\"sb-\", XsApp, \"!\")))\r\n    | where LocalScope matches regex @\"(?i)(admin|manage|write|config|owner|operator)\"\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(Scope, 5)\r\n        by SubaccountName, Tenant, ResourceKey = XsApp, Contact = Human\r\n    | extend ResourceType = \"Custom app (XSUAA)\", Signal = \"App administrator scope\", Confidence = 2;\r\n// S8: interactive app users (informational, never used as primary contact)\r\nlet s8 = tokens\r\n    | where IsHuman(Human) and GrantType == \"authorization_code\"\r\n    | extend XsApp = AppFromClient(ClientId)\r\n    | where isnotempty(XsApp)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ClientId, 3)\r\n        by SubaccountName, Tenant, ResourceKey = XsApp, Contact = Human\r\n    | extend ResourceType = \"Custom app (XSUAA)\", Signal = \"App user\", Confidence = 4;\r\n// Configuration events\r\nlet cfg = materialize(base\r\n    | where Category == \"audit.configuration\" or isnotempty(Message.object)\r\n    | extend Obj = parse_json(tostring(Message.object))\r\n    | extend ObjType = tostring(Obj.type), ObjId = parse_json(tostring(Obj.id)));\r\n// SCIM user id -> email, to resolve role collection assignees\r\nlet scim_map = cfg\r\n    | where tostring(Message.object) has \"scim user\"\r\n    | mv-expand Attr = parse_json(tostring(Message.attributes))\r\n    | extend U = parse_json(replace_regex(tostring(Attr.new), @\"\\r\", \"\"))\r\n    | extend UserId = tostring(U.id), Email = tolower(coalesce(tostring(U.emails[0].value), tostring(U.userName)))\r\n    | where isnotempty(UserId) and Email has \"@\"\r\n    | summarize arg_max(TimeGenerated, Email) by Tenant, UserId\r\n    | project Tenant, UserId, Email;\r\n// S1: current holders of administrator role collections (latest CREATE not followed by DELETE)\r\nlet s1 = cfg\r\n    | where tostring(Message.object) has \"xs_rolecollection2user\"\r\n    | extend Crud = tostring(ObjId.crudType), RoleCollection = tostring(ObjId.rolecollection_name), UserId = tostring(ObjId.user_id)\r\n    | where RoleCollection in (admin_role_collections)\r\n    | summarize arg_max(TimeGenerated, Crud) by SubaccountName, Tenant, RoleCollection, UserId\r\n    | where Crud != \"DELETE\"\r\n    | join kind=leftouter scim_map on Tenant, UserId\r\n    | extend Contact = tolower(iff(UserId has \"@\", UserId, Email))\r\n    | where isnotempty(Contact)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(RoleCollection, 5)\r\n        by SubaccountName, Tenant, Contact\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Holds administrator role collection\", Confidence = 1;\r\n// S7: Cloud Integration artifact deployer / creator\r\nlet s7 = cfg\r\n    | where ObjType in (\"Deployment\", \"Undeployment\")\r\n    | mv-apply a = parse_json(tostring(Message.attributes)) on (\r\n        summarize Artifact = take_anyif(tostring(coalesce(a.[\"new\"], a.[\"old\"])), tostring(a.name) == \"symbolicName\"),\r\n                  Actor = take_anyif(tostring(coalesce(a.[\"new\"], a.[\"old\"])), tostring(a.name) in (\"deployedBy\", \"undeployedBy\", \"creator\")))\r\n    | where IsHuman(Actor) and isnotempty(Artifact)\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 2)\r\n        by SubaccountName, Tenant, ResourceKey = Artifact, Contact = tolower(Actor)\r\n    | extend ResourceType = \"Integration artifact\", Signal = \"Artifact deployer / creator\", Confidence = 1;\r\nlet human_cfg = cfg\r\n    | where Category == \"audit.configuration\" and IsHuman(UserName);\r\n// S3: human actors of configuration changes in the subaccount\r\nlet s3 = human_cfg\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 5)\r\n        by SubaccountName, Tenant, Contact = tolower(UserName)\r\n    | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName, Signal = \"Configuration change actor\", Confidence = 3;\r\n// S5: human creator / modifier of a service instance\r\nlet s5 = human_cfg\r\n    | where ObjType has_any (\"service_instance\", \"service instance\", \"serviceinstance\")\r\n    | extend ResourceKey = coalesce(tostring(ObjId.name), tostring(ObjId.service_instance_name), tostring(ObjId.id), tostring(ObjId))\r\n    | summarize EvidenceCount = count(), LastSeen = max(TimeGenerated), Evidence = make_set(ObjType, 5)\r\n        by SubaccountName, Tenant, ResourceKey, Contact = tolower(UserName)\r\n    | extend ResourceType = \"Service instance\", Signal = \"Instance creator / modifier\", Confidence = 2;\r\nlet candidates = materialize(union s1, s2, s3, s5, s6, s7, s8\r\n    | project ResourceType, SubaccountName, Tenant, ResourceKey, Contact, Signal, Confidence, EvidenceCount, LastSeen, Evidence);\r\n// Ranked responsible contacts (app users excluded)\r\nlet ranked = candidates\r\n    | where Confidence < 4\r\n    | summarize Signals = make_set(Signal), BestConfidence = min(Confidence), Evidence = sum(EvidenceCount), LastSeen = max(LastSeen)\r\n        by ResourceType, SubaccountName, Tenant, ResourceKey, Contact\r\n    | sort by ResourceType asc, Tenant asc, ResourceKey asc, BestConfidence asc, Evidence desc, LastSeen desc\r\n    | extend Rank = row_number(1, prev(ResourceType) != ResourceType or prev(Tenant) != Tenant or prev(ResourceKey) != ResourceKey);\r\nlet picked = materialize(ranked\r\n    | summarize PrimaryContact = take_anyif(Contact, Rank == 1),\r\n                PrimaryConfidence = take_anyif(BestConfidence, Rank == 1),\r\n                PrimarySignals = take_anyif(Signals, Rank == 1),\r\n                OtherContacts = make_set_if(Contact, Rank between (2 .. 5))\r\n        by ResourceType, SubaccountName, Tenant, ResourceKey);\r\nlet subaccount_contacts = picked\r\n    | where ResourceType == \"Subaccount\"\r\n    | project SubaccountName, Tenant, SubContact = PrimaryContact, SubConfidence = PrimaryConfidence, SubSignals = PrimarySignals, SubOthers = OtherContacts;\r\nlet direct_contacts = picked\r\n    | where ResourceType != \"Subaccount\"\r\n    | project ResourceType, Tenant, ResourceKey, PrimaryContact, PrimaryConfidence, PrimarySignals, OtherContacts;let app_users = candidates\r\n    | where Confidence == 4\r\n    | summarize AppUsers = make_set(Contact, 5) by ResourceType, Tenant, ResourceKey;\r\n// Resource inventory: subaccounts, custom apps (tokens + apps writing audit logs), resources seen in candidates\r\nlet inventory = union\r\n    (base | summarize by SubaccountName, Tenant | extend ResourceType = \"Subaccount\", ResourceKey = SubaccountName),\r\n    (tokens | summarize by ClientId, SubaccountName, Tenant | extend ResourceKey = AppFromClient(ClientId) | where isnotempty(ResourceKey) | extend ResourceType = \"Custom app (XSUAA)\"),\r\n    (base | where UserName startswith \"sb-\" | summarize by UserName, SubaccountName, Tenant\r\n          | extend ResourceKey = AppFromClient(UserName) | where isnotempty(ResourceKey) | extend ResourceType = \"Custom app (XSUAA)\"),\r\n    (candidates | summarize by ResourceType, SubaccountName, Tenant, ResourceKey)\r\n    | summarize SubaccountName = take_any(SubaccountName) by ResourceType, Tenant, ResourceKey;\r\nlet activity = base\r\n    | summarize LastActivity = max(TimeGenerated) by SubaccountName, Tenant;\r\nlet resolved = materialize(inventory\r\n    | join kind=leftouter direct_contacts on ResourceType, Tenant, ResourceKey\r\n    | join kind=leftouter subaccount_contacts on SubaccountName, Tenant\r\n    | join kind=leftouter app_users on ResourceType, Tenant, ResourceKey\r\n    | join kind=leftouter activity on SubaccountName, Tenant\r\n    | extend IsSub = ResourceType == \"Subaccount\", HasDirect = isnotempty(PrimaryContact) and ResourceType != \"Subaccount\"\r\n    | extend Contact = case(IsSub, SubContact, HasDirect, PrimaryContact, SubContact),\r\n             ContactSource = case(IsSub and isnotempty(SubContact), \"Direct\", HasDirect, \"Direct\", isnotempty(SubContact), \"Subaccount admin (fallback)\", \"Unresolved\"),\r\n             ConfidenceValue = case(IsSub, SubConfidence, HasDirect, PrimaryConfidence, SubConfidence),\r\n             Basis = case(IsSub, SubSignals, HasDirect, PrimarySignals, SubSignals),\r\n             AdditionalContacts = case(IsSub, SubOthers, HasDirect, OtherContacts, SubOthers)\r\n    | extend Confidence = case(isempty(Contact), \"None\", ConfidenceValue == 1, \"High\", ConfidenceValue == 2, \"Medium\", \"Low\")\r\n    | project ResourceType, SubaccountName, Resource = ResourceKey, Contact, ContactSource, Confidence, Basis,\r\n              AdditionalContacts, AppUsers, LastActivity, Tenant);\r\ncandidates\r\n| where SubaccountName == '{SelectedSubaccount}'\r\n| where (ResourceType == '{SelectedResourceType}' and ResourceKey == '{SelectedResource}') or ResourceType == \"Subaccount\"\r\n| extend Scope = iff(ResourceType == \"Subaccount\" and '{SelectedResourceType}' != \"Subaccount\", \"Subaccount (fallback)\", \"Resource\")\r\n| sort by Scope asc, Confidence asc, EvidenceCount desc, LastSeen desc\r\n| extend Confidence = case(Confidence == 1, \"High\", Confidence == 2, \"Medium\", Confidence == 3, \"Low\", \"App user (info only)\")\r\n| project Scope, ResourceType, Resource = ResourceKey, Contact, Signal, Confidence, EvidenceCount, LastSeen, Evidence",
+                            "size": 0,
+                            "title": "Contact evidence for {SelectedResource} ({SelectedSubaccount})",
+                            "timeContextFromParameter": "ContactLookback",
+                            "queryType": 0,
+                            "resourceType": "microsoft.operationalinsights/workspaces",
+                            "visualization": "table",
+                            "gridSettings": {
+                                "formatters": [
+                                    {
+                                        "columnMatch": "Confidence",
+                                        "formatter": 18,
+                                        "formatOptions": {
+                                            "thresholdsOptions": "icons",
+                                            "thresholdsGrid": [
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "High",
+                                                    "representation": "success",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Medium",
+                                                    "representation": "2",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Low",
+                                                    "representation": "warning",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "App user (info only)",
+                                                    "representation": "info",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "Default",
+                                                    "representation": "unknown",
+                                                    "text": "{0}{1}"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "columnMatch": "LastSeen",
+                                        "formatter": 6
+                                    }
+                                ],
+                                "filter": true,
+                                "labelSettings": [
+                                    {
+                                        "columnId": "ResourceType",
+                                        "label": "Resource Type"
+                                    },
+                                    {
+                                        "columnId": "EvidenceCount",
+                                        "label": "Events"
+                                    },
+                                    {
+                                        "columnId": "LastSeen",
+                                        "label": "Last Seen"
+                                    }
+                                ]
+                            },
+                            "noDataMessage": "No contact evidence found for the selected resource.",
+                            "noDataMessageStyle": "3"
+                        },
+                        "conditionalVisibility": {
+                            "parameterName": "SelectedResource",
+                            "comparison": "isNotEqualTo"
+                        },
+                        "name": "query - contact-evidence"
+                    }
+                ]
+            },
+            "conditionalVisibility": {
+                "parameterName": "setTab",
+                "comparison": "isEqualTo",
+                "value": "Contacts"
+            },
+            "name": "group - contacts"
         }
     ],
     "isLocked": true,

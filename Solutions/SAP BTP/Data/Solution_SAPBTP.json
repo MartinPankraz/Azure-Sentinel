@@ -38,7 +38,7 @@
   "Watchlists": [],
   "WatchlistDescription": [],
   "BasePath": "C:\\GitHub\\Azure-Sentinel\\Solutions\\SAP BTP",
-  "Version": "3.2.1",
+  "Version": "3.2.2",
   "Metadata": "SolutionMetadata.json",
   "TemplateSpec": false,
   "Is1PConnector": false
